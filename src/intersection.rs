@@ -3,25 +3,25 @@ use std::collections::{BinaryHeap, HashMap};
 
 use crate::position::{Position, Positioned, PositionedIterator};
 
-pub struct IntersectionIterator<'a, 'b: 'a, I: PositionedIterator<'b>> {
+pub struct IntersectionIterator<'c, I: PositionedIterator> {
     base_iterator: I,
     other_iterators: Vec<I>,
-    min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
-    chromosome_order: &'b HashMap<String, usize>,
+    min_heap: BinaryHeap<ReverseOrderPosition<'c>>,
+    chromosome_order: &'c HashMap<String, usize>,
 }
 
-pub struct Intersection<'a> {
-    base_interval: Position<'a>,
-    overlapping_positions: Vec<Position<'a>>,
+pub struct Intersection {
+    base_interval: Position,
+    overlapping_positions: Vec<Position>,
 }
 
-struct ReverseOrderPosition<'a> {
-    position: Position<'a>,
-    chromosome_order: &'a HashMap<String, usize>,
+struct ReverseOrderPosition<'c> {
+    position: Position,
+    chromosome_order: &'c HashMap<String, usize>,
     file_index: usize,
 }
 
-impl<'a> PartialEq for ReverseOrderPosition<'a> {
+impl<'c> PartialEq for ReverseOrderPosition<'c> {
     fn eq(&self, other: &Self) -> bool {
         self.position.chromosome == other.position.chromosome
             && self.position.start == other.position.start
@@ -29,23 +29,23 @@ impl<'a> PartialEq for ReverseOrderPosition<'a> {
     }
 }
 
-impl<'a> Eq for ReverseOrderPosition<'a> {}
+impl<'c> Eq for ReverseOrderPosition<'c> {}
 
-impl<'a> PartialOrd for ReverseOrderPosition<'a> {
+impl<'c> PartialOrd for ReverseOrderPosition<'c> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a> Ord for ReverseOrderPosition<'a> {
+impl<'c> Ord for ReverseOrderPosition<'c> {
     fn cmp(&self, other: &Self) -> Ordering {
         let order = self
             .chromosome_order
-            .get(self.position.chromosome)
+            .get(&self.position.chromosome)
             .unwrap()
             .cmp(
                 self.chromosome_order
-                    .get(other.position.chromosome)
+                    .get(&other.position.chromosome)
                     .unwrap(),
             );
 
@@ -61,46 +61,50 @@ impl<'a> Ord for ReverseOrderPosition<'a> {
 
 //pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
 
-impl<'a, 'b: 'a, I: PositionedIterator<'b> + 'a + 'b> IntersectionIterator<'a, 'b, I> {
+impl<'c, I: PositionedIterator> IntersectionIterator<'c, I> {
     pub fn new(
-        base_iterator: I,
-        other_iterators: Vec<I>,
-        chromosome_order: &'b HashMap<String, usize>,
+        mut base_iterator: I,
+        mut other_iterators: Vec<I>,
+        chromosome_order: &'c HashMap<String, usize>,
     ) -> Self {
-        let min_heap = BinaryHeap::new();
-        let mut ii = IntersectionIterator {
+        let min_heap = Self::init_heap(&mut base_iterator, &mut other_iterators, chromosome_order);
+        Self {
             base_iterator,
             other_iterators,
             min_heap,
             chromosome_order,
-        };
-        ii.init_heap();
-        ii
+        }
     }
 
-    fn init_heap(&'b mut self) {
-        if let Some(positioned) = self.base_iterator.next() {
-            self.min_heap.push(ReverseOrderPosition {
+    fn init_heap(
+        base_iterator: &mut I,
+        other_iterators: &mut [I],
+        chromosome_order: &'c HashMap<String, usize>,
+    ) -> BinaryHeap<ReverseOrderPosition<'c>> {
+        let mut min_heap = BinaryHeap::new();
+        if let Some(positioned) = base_iterator.next() {
+            min_heap.push(ReverseOrderPosition {
                 position: positioned.position(),
-                chromosome_order: self.chromosome_order,
+                chromosome_order: chromosome_order,
                 file_index: 0,
             });
         }
 
-        for (i, iter) in self.other_iterators.iter_mut().enumerate() {
+        for (i, iter) in other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next() {
-                self.min_heap.push(ReverseOrderPosition {
+                min_heap.push(ReverseOrderPosition {
                     position: positioned.position(),
-                    chromosome_order: self.chromosome_order,
+                    chromosome_order: chromosome_order,
                     file_index: i + 1, // Adjust the file_index accordingly
                 });
             }
         }
+        min_heap
     }
 }
 
-impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a, 'b, I> {
-    type Item = Intersection<'b>;
+impl<'c, I: PositionedIterator> Iterator for IntersectionIterator<'c, I> {
+    type Item = Intersection;
 
     fn next(&mut self) -> Option<Self::Item> {
         let base_interval = self.base_iterator.next()?.position();

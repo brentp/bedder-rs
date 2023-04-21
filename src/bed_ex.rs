@@ -8,15 +8,15 @@ pub struct BedFile {
     chroms: Vec<String>,
 }
 
-pub struct BedInterval<'a> {
-    chromosome: &'a str,
+pub struct BedInterval {
+    chromosome: String,
     start: u64,
     stop: u64,
 }
 
-impl<'a> Positioned<'a> for BedInterval<'a> {
-    fn position(&self) -> Position<'a> {
-        Position::new(self.chromosome, self.start, self.stop)
+impl Positioned for BedInterval {
+    fn position(&self) -> Position {
+        Position::new(self.chromosome.clone(), self.start, self.stop)
     }
 }
 
@@ -32,11 +32,11 @@ impl BedFile {
     }
 }
 
-impl<'a> PositionedIterator<'a> for BedFile {
-    type Item = BedInterval<'a>;
+impl PositionedIterator for BedFile {
+    type Item = BedInterval;
 
     // Need to convnice the compiler that Item<'a> is valid at least as long as the borrow of self.
-    fn next<'b: 'a>(&'b mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Option<Self::Item> {
         // read a line from fh
 
         let mut line = String::new();
@@ -60,7 +60,7 @@ impl<'a> PositionedIterator<'a> for BedFile {
         // let chrom: &str = ;
         // parse the line into a Position
         let b: Option<BedInterval> = Some(BedInterval {
-            chromosome: &self.chroms[self.chroms.len() - 1],
+            chromosome: self.chroms[self.chroms.len() - 1].clone(),
             start: toks.next()?.parse().ok()?,
             stop: toks.next()?.parse().ok()?,
         });
