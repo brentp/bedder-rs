@@ -1,5 +1,5 @@
 use crate::intersection;
-use crate::position::{Position, Positioned, PositionedIterator};
+use crate::position::{Positioned, PositionedIterator};
 use std::io;
 use std::io::{BufRead, BufReader};
 
@@ -14,9 +14,31 @@ pub struct BedInterval {
     stop: u64,
 }
 
-impl<'a> Positioned<'a> for BedInterval {
-    fn position(&'a self) -> Position<'a> {
-        Position::new(&self.chromosome, self.start, self.stop)
+impl Positioned for BedInterval {
+    fn chromosome(&self) -> &str {
+        &self.chromosome
+    }
+
+    fn start(&self) -> u64 {
+        self.start
+    }
+
+    fn stop(&self) -> u64 {
+        self.stop
+    }
+}
+
+impl Positioned for &BedInterval {
+    fn chromosome(&self) -> &str {
+        &self.chromosome
+    }
+
+    fn start(&self) -> u64 {
+        self.start
+    }
+
+    fn stop(&self) -> u64 {
+        self.stop
     }
 }
 
@@ -32,7 +54,7 @@ impl BedFile {
     }
 }
 
-impl<'a> PositionedIterator<'a> for BedFile {
+impl PositionedIterator for BedFile {
     type Item = BedInterval;
 
     // Need to convnice the compiler that Item<'a> is valid at least as long as the borrow of self.
