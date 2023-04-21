@@ -7,8 +7,8 @@ pub enum Value {
     Strings(Vec<String>),
 }
 
-pub trait Positioned {
-    fn position(&self) -> Position;
+pub trait Positioned<'a> {
+    fn position(&'a self) -> Position<'a>;
 
     // extract a value from the Positioned object with a string key
     //fn value(&self, String) -> Value<'a>
@@ -21,14 +21,14 @@ pub trait Positioned {
 }
 
 #[derive(Debug)]
-pub struct Position {
-    pub chromosome: String,
+pub struct Position<'a> {
+    pub chromosome: &'a str,
     pub start: u64,
     pub stop: u64,
 }
 
-impl Position {
-    pub fn new(chromosome: String, start: u64, stop: u64) -> Self {
+impl<'a> Position<'a> {
+    pub fn new(chromosome: &'a str, start: u64, stop: u64) -> Self {
         Position {
             chromosome,
             start,
@@ -37,8 +37,8 @@ impl Position {
     }
 }
 
-pub trait PositionedIterator {
-    type Item: Positioned;
+pub trait PositionedIterator<'a> {
+    type Item: Positioned<'a>;
 
     fn next(&mut self) -> Option<Self::Item>;
 }

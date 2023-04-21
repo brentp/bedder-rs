@@ -14,9 +14,9 @@ pub struct BedInterval {
     stop: u64,
 }
 
-impl Positioned for BedInterval {
-    fn position(&self) -> Position {
-        Position::new(self.chromosome.clone(), self.start, self.stop)
+impl<'a> Positioned<'a> for BedInterval {
+    fn position(&'a self) -> Position<'a> {
+        Position::new(&self.chromosome, self.start, self.stop)
     }
 }
 
@@ -32,7 +32,7 @@ impl BedFile {
     }
 }
 
-impl PositionedIterator for BedFile {
+impl<'a> PositionedIterator<'a> for BedFile {
     type Item = BedInterval;
 
     // Need to convnice the compiler that Item<'a> is valid at least as long as the borrow of self.
