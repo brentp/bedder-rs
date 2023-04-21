@@ -3,12 +3,9 @@ use crate::position::{Position, Positioned, PositionedIterator};
 use std::io;
 use std::io::{BufRead, BufReader};
 
-pub struct BedFile<'a> {
+pub struct BedFile {
     fh: BufReader<std::fs::File>,
     chroms: Vec<String>,
-    // use phantom data to indicate that the lifetime of the BedFile is the same as the lifetime of the
-    // strings in chroms
-    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 pub struct BedInterval<'a> {
@@ -24,22 +21,22 @@ impl<'a> Positioned<'a> for BedInterval<'a> {
 }
 
 // the new method on BedFile opens the file and returns a BedFile
-impl<'a> BedFile<'a> {
+impl BedFile {
     pub fn new(path: &str) -> io::Result<Self> {
         let fh = std::fs::File::open(path)?;
         let br = BufReader::new(fh);
         Ok(BedFile {
             fh: br,
             chroms: vec![],
-            _phantom: std::marker::PhantomData,
         })
     }
 }
 
-impl<'a> PositionedIterator<'a> for BedFile<'a> {
+impl<'a> PositionedIterator<'a> for BedFile {
     type Item = BedInterval<'a>;
 
-    fn next(&'a mut self) -> Option<Self::Item> {
+    // Need to convnice the compiler that Item<'a> is valid at least as long as the borrow of self.
+    fn next<'b: 'a>(&'b mut self) -> Option<Self::Item> {
         // read a line from fh
 
         let mut line = String::new();
@@ -60,10 +57,10 @@ impl<'a> PositionedIterator<'a> for BedFile<'a> {
             self.chroms.push(chromosome.to_string());
         }
 
-        let chrom: &'a str = &self.chroms[self.chroms.len() - 1];
+        // let chrom: &str = ;
         // parse the line into a Position
         let b: Option<BedInterval> = Some(BedInterval {
-            chromosome: chrom,
+            chromosome: &self.chroms[self.chroms.len() - 1],
             start: toks.next()?.parse().ok()?,
             stop: toks.next()?.parse().ok()?,
         });

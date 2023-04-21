@@ -3,12 +3,11 @@ use std::collections::{BinaryHeap, HashMap};
 
 use crate::position::{Position, Positioned, PositionedIterator};
 
-pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
+pub struct IntersectionIterator<'a, 'b: 'a, I: PositionedIterator<'b>> {
     base_iterator: I,
     other_iterators: Vec<I>,
     min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
-    chromosome_order: &'a HashMap<String, usize>,
-    phantom: std::marker::PhantomData<&'b ()>,
+    chromosome_order: &'b HashMap<String, usize>,
 }
 
 pub struct Intersection<'a> {
@@ -62,11 +61,11 @@ impl<'a> Ord for ReverseOrderPosition<'a> {
 
 //pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
 
-impl<'a, 'b, I: PositionedIterator<'b> + 'a> IntersectionIterator<'a, 'b, I> {
+impl<'a, 'b: 'a, I: PositionedIterator<'b> + 'a + 'b> IntersectionIterator<'a, 'b, I> {
     pub fn new(
         base_iterator: I,
         other_iterators: Vec<I>,
-        chromosome_order: &'a HashMap<String, usize>,
+        chromosome_order: &'b HashMap<String, usize>,
     ) -> Self {
         let min_heap = BinaryHeap::new();
         let mut ii = IntersectionIterator {
@@ -74,13 +73,12 @@ impl<'a, 'b, I: PositionedIterator<'b> + 'a> IntersectionIterator<'a, 'b, I> {
             other_iterators,
             min_heap,
             chromosome_order,
-            phantom: std::marker::PhantomData,
         };
         ii.init_heap();
         ii
     }
 
-    fn init_heap(&mut self) {
+    fn init_heap(&'b mut self) {
         if let Some(positioned) = self.base_iterator.next() {
             self.min_heap.push(ReverseOrderPosition {
                 position: positioned.position(),
