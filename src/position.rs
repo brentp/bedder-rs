@@ -43,8 +43,8 @@ pub trait PositionedIterator {
     /// Used to provide informative messages to the user.
     fn name(&self) -> String;
 
-    /// return the next Positioned from the iterator.
-    /// it is fine for implementers to ignore `q`. Some iterators may improve performance
+    /// Return the next Positioned from the iterator.
+    /// It is fine for implementers to ignore `q`. Some iterators may improve performance
     /// by using `q` to index-skip.
     /// `q` will be Some only on the first call for a given query interval.
     /// Calls where `q` is None should return the next Positioned in the iterator (file) that has not

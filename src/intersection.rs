@@ -22,6 +22,10 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     // this is only kept for error checking so we can track if intervals are out of order.
     previous_interval: Option<Rc<P>>,
 
+    // this stores only the first interval from the base stream.
+    // required so we can send it for initializing the heap.
+    first_interval: Option<Rc<P>>,
+
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
     called: Vec<bool>, // TODO: use bitset
@@ -84,6 +88,19 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
     }
 }
 
+/*
+implementation note:
+
+all of this should be fairly straightforward. One ugly complexity is with the first interval
+and init_heap:
+We must initialize the heap with the first interval from the base stream. This means that
+all of the `other_iterators` have seen the interval. So, we initialize `called` to true for
+all iterators. Then, in pull_though_heap, if first_interval.is_some() (first iteration),
+then we do not reset `called` (with clear_called). On subsequent iterations, we always `clear_called`
+before pull_through_heap so that implementers can choose to seek/skip.
+
+ */
+
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I, P> {
     pub fn new(
         base_iterator: I,
@@ -91,7 +108,9 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         chromosome_order: &'a HashMap<String, usize>,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
-        let called = vec![false; other_iterators.len()];
+        // we initialize the heap in init_heap. Therefore, we set called.
+        // in subsequent iterations, we must call clear_called before calling pull_through_heap.
+        let called = vec![true; other_iterators.len()];
         let mut ii = IntersectionIterator {
             base_iterator,
             other_iterators,
@@ -99,16 +118,32 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             chromosome_order,
             dequeue: VecDeque::new(),
             previous_interval: None,
+            first_interval: None,
             called: called,
         };
-        ii.init_heap()?;
-        Ok(ii)
+        if let Some(bi) = ii.base_iterator.next_position(None) {
+            // if bi is an error return the Result here
+            let base_interval = match bi {
+                Err(e) => return Err(e),
+                Ok(p) => Rc::new(p),
+            };
+
+            ii.first_interval = Some(base_interval);
+            ii.init_heap()?;
+            return Ok(ii);
+        }
+        return Err(Error::new(ErrorKind::Other, "no intervals in query file"));
     }
 
     fn init_heap(&mut self) -> io::Result<()> {
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            // TODO: this should be called with the first base_interval instead of None.
-            if let Some(positioned) = iter.next_position(None) {
+            if let Some(positioned) = iter.next_position(Some(
+                self.first_interval
+                    .as_ref()
+                    // we can't get here if first_interval.is_none
+                    .expect("always need a query interval")
+                    .as_ref(),
+            )) {
                 let positioned = positioned?;
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
@@ -151,13 +186,12 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 
     // reset the array that tracks which iterators have been called with Some(Positioned)
     #[inline]
-    fn zero_called(&mut self) {
+    fn clear_called(&mut self) {
         let ptr = self.called.as_mut_ptr();
         unsafe { ptr.write_bytes(0, self.called.len() * std::mem::size_of::<bool>()) };
     }
 
     fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
-        self.zero_called();
         let other_iterators = self.other_iterators.as_mut_slice();
 
         while let Some(ReverseOrderPosition {
@@ -172,6 +206,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 .expect("expected interval iterator at file index");
             // for a given base_interval, we make sure to call next_position with Some, only once.
             // subsequent calls will be with None.
+            // called is cleared in next() before this function.
             let arg: Option<&dyn Positioned> = if !self.called[file_index] {
                 self.called[file_index] = true;
                 Some(base_interval.as_ref())
@@ -254,12 +289,18 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     type Item = io::Result<Intersections<P>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let bi = self.base_iterator.next_position(None)?;
-
-        // if bi is an error return the Result here
-        let base_interval = match bi {
-            Err(e) => return Some(Err(e)),
-            Ok(p) => Rc::new(p),
+        // on first iteration, we take out of the first interval.
+        let base_interval: Rc<P> = match self.first_interval.take() {
+            None => match self.base_iterator.next_position(None)? {
+                Err(e) => return Some(Err(e)),
+                Ok(p) => {
+                    // on all but the first iteration, we need to clear called.
+                    self.clear_called();
+                    Rc::new(p)
+                }
+            },
+            // first iteration so we don't clear called as iterators already got this.
+            Some(fi) => fi,
         };
 
         if self.out_of_order(base_interval.clone()) {
@@ -320,7 +361,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
 mod tests {
     use super::*;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct Interval {
         chrom: String,
         start: u64,
@@ -535,6 +576,54 @@ mod tests {
             })
             .sum::<usize>();
         assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn many_intervals() {
+        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let mut ivs = Vec::new();
+        let n_intervals = 100;
+        for i in 0..n_intervals {
+            ivs.push(Interval {
+                chrom: String::from("chr1"),
+                start: i,
+                stop: i + 1,
+            })
+        }
+
+        let a_ivs = Intervals::new(String::from("A"), ivs.clone());
+
+        let times = 3;
+        for _ in 0..times {
+            for i in 0..n_intervals {
+                ivs.push(Interval {
+                    chrom: String::from("chr1"),
+                    start: i,
+                    stop: i + 1,
+                })
+            }
+        }
+        ivs.push(Interval {
+            chrom: String::from("chr1"),
+            start: n_intervals + 9,
+            stop: n_intervals + 10,
+        });
+        ivs.sort_by(|a, b| a.start.cmp(&b.start));
+
+        let b_ivs = Intervals::new(String::from("B"), ivs.clone());
+        let mut iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+            .expect("error getting iterator");
+        let mut n = 0;
+        assert!(iter.all(|intersection| {
+            let intersection = intersection.expect("error getting intersection");
+            n += 1;
+            assert!(intersection
+                .overlapping
+                .iter()
+                .all(|p| p.interval.start() == intersection.base_interval.start()));
+            intersection.overlapping.len() == times + 1
+        }));
+        assert_eq!(n, n_intervals)
     }
 
     #[test]
